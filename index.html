@@ -1,43 +1,31 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ZENAI</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZENAI</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b0f14;color:#f5f7fa}.app{height:100vh;display:flex}.side{width:260px;background:#11161d;border-right:1px solid #26303b;padding:16px;display:flex;flex-direction:column;gap:12px}.brand{font-size:24px;font-weight:800;padding:8px}.new,.tool,.send{cursor:pointer}.new{border:0;border-radius:12px;padding:12px;background:#fff;color:#111;font-weight:700}.saved{flex:1;overflow:auto}.item{padding:11px;border-radius:10px;margin:4px 0;cursor:pointer;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.item:hover,.item.active{background:#202936}.tools{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tool{padding:10px;border:1px solid #303b48;background:#171e27;color:#fff;border-radius:10px}.main{flex:1;display:flex;flex-direction:column;min-width:0}.top{height:64px;border-bottom:1px solid #26303b;display:flex;align-items:center;padding:0 20px;font-weight:700}.status{margin-left:auto;font-size:12px;color:#8ee0a5}.messages{flex:1;overflow:auto;padding:24px 16px}.wrap{max-width:850px;margin:auto}.msg{display:flex;margin:14px 0}.msg.user{justify-content:flex-end}.bubble{max-width:78%;padding:13px 16px;border-radius:16px;line-height:1.6;white-space:pre-wrap}.assistant .bubble{background:#18212b}.user .bubble{background:#315efb}.meta{font-size:11px;color:#8c98a6;margin:5px 4px}.composer{border-top:1px solid #26303b;padding:14px}.box{max-width:850px;margin:auto;display:flex;gap:10px}.box textarea{flex:1;resize:none;min-height:52px;max-height:180px;border:1px solid #344151;background:#141b23;color:#fff;border-radius:14px;padding:14px;font:inherit;outline:none}.send{width:58px;border:0;border-radius:14px;background:#fff;color:#111;font-size:20px}.send:disabled{opacity:.45}.empty{text-align:center;padding-top:15vh;color:#8f9baa}.empty h1{font-size:42px;color:#fff;margin:0 0 8px}@media(max-width:560px){.side{display:none}}
+</style>
 </head>
-
 <body>
-  <main>
-    <h1>ZENAI</h1>
-    <p id="status">サーバーに接続中...</p>
-  </main>
-
-  <script>
-    async function checkServer() {
-      const status = document.getElementById("status");
-
-      try {
-        const response = await fetch("/api/health");
-
-        if (!response.ok) {
-          throw new Error("サーバーエラー");
-        }
-
-        const data = await response.json();
-
-        if (data.ok) {
-          status.textContent = "サーバー接続成功！";
-        } else {
-          status.textContent = "サーバー接続を確認してください。";
-        }
-
-      } catch (error) {
-        console.error(error);
-        status.textContent = "サーバー接続を確認してください。";
-      }
-    }
-
-    checkServer();
-  </script>
-</body>
-</html>
+<div class="app">
+<aside class="side"><div class="brand">ZENAI</div><button class="new" id="newBtn">＋ 新しいチャット</button><div class="saved" id="saved"></div><div class="tools"><button class="tool" id="exportBtn">保存</button><button class="tool" id="importBtn">読込</button><input id="fileInput" type="file" accept=".json" hidden></div></aside>
+<main class="main"><header class="top">ZENAI <span class="status" id="status">接続確認中…</span></header><section class="messages" id="messages"><div class="wrap" id="wrap"></div></section><div class="composer"><div class="box"><textarea id="input" placeholder="ZENAIにメッセージを送る…"></textarea><button class="send" id="send">➤</button></div></div></main>
+</div>
+<script>
+const KEY="zenai_chats_v1";let chats=JSON.parse(localStorage.getItem(KEY)||"[]"),current=null,busy=false;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function save(){localStorage.setItem(KEY,JSON.stringify(chats));list()}
+function list(){$("saved").innerHTML=chats.map(c=>`<div class="item ${current&&c.id===current.id?"active":""}" data-id="${c.id}">${esc(c.title)}</div>`).join("");document.querySelectorAll(".item").forEach(x=>x.onclick=()=>{current=chats.find(c=>c.id===x.dataset.id);render()})}
+function newChat(){current={id:crypto.randomUUID(),title:"新しいチャット",messages:[]};chats.unshift(current);save();render()}
+function render(){list();let w=$("wrap");if(!current||!current.messages.length){w.innerHTML='<div class="empty"><h1>ZENAI</h1><p>何でも聞いてください。</p></div>';return}w.innerHTML=current.messages.map(m=>`<div class="msg ${m.role}"><div><div class="bubble">${esc(m.content)}</div><div class="meta">${m.role==="user"?"あなた":"ZENAI"}</div></div></div>`).join("");$("messages").scrollTop=$("messages").scrollHeight}
+async function health(){try{let r=await fetch("/api/health");let d=await r.json();$("status").textContent=d.ok?"● 接続中":"● エラー"}catch{$("status").textContent="● 接続エラー"}}
+async function send(){if(busy)return;let text=$("input").value.trim();if(!text)return;if(!current)newChat();current.messages.push({role:"user",content:text});if(current.title==="新しいチャット")current.title=text.slice(0,28);$("input").value="";busy=true;$("send").disabled=true;render();try{let r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:current.messages})});let d=await r.json();if(!r.ok)throw Error(d.error||"サーバーエラー");current.messages.push({role:"assistant",content:d.text||"回答がありません。"});save();render()}catch(e){current.messages.push({role:"assistant",content:"エラー: "+e.message});save();render()}busy=false;$("send").disabled=false}
+$("newBtn").onclick=newChat;$("send").onclick=send;$("input").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send()}};
+$("exportBtn").onclick=()=>{let a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(chats,null,2)],{type:"application/json"}));a.download="zenai-chats.json";a.click()};
+$("importBtn").onclick=()=>$("fileInput").click();$("fileInput").onchange=async e=>{try{chats=JSON.parse(await e.target.files[0].text());current=chats[0]||null;save();render()}catch{alert("読み込めませんでした")}};
+if(!chats.length)newChat();else{current=chats[0];render()}health();
+</script>
+</body></html>
