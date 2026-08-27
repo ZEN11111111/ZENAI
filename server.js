@@ -10,9 +10,10 @@ const PORT = process.env.PORT || 3000;
 
 const API_KEY = process.env.GEMINI_API_KEY;
 
-// 使用するGeminiモデル
-const MODEL =
-  process.env.GEMINI_MODEL || "gemini-3.6-flash";
+// Geminiモデル
+const MODEL = (
+  process.env.GEMINI_MODEL || "gemini-3.6-flash"
+).trim();
 
 
 const server = http.createServer(async (req, res) => {
@@ -27,7 +28,8 @@ const server = http.createServer(async (req, res) => {
   ) {
 
     res.writeHead(200, {
-      "Content-Type": "application/json"
+      "Content-Type":
+        "application/json; charset=utf-8"
     });
 
     return res.end(
@@ -40,7 +42,7 @@ const server = http.createServer(async (req, res) => {
 
 
   // ========================================
-  // Chat API
+  // Gemini Chat
   // ========================================
 
   if (
@@ -52,7 +54,8 @@ const server = http.createServer(async (req, res) => {
     if (!API_KEY) {
 
       res.writeHead(500, {
-        "Content-Type": "application/json"
+        "Content-Type":
+          "application/json; charset=utf-8"
       });
 
       return res.end(
@@ -78,7 +81,6 @@ const server = http.createServer(async (req, res) => {
 
         const data = JSON.parse(body);
 
-
         const message = data.message;
 
         const interactionId =
@@ -93,7 +95,7 @@ const server = http.createServer(async (req, res) => {
 
           res.writeHead(400, {
             "Content-Type":
-              "application/json"
+              "application/json; charset=utf-8"
           });
 
           return res.end(
@@ -130,7 +132,7 @@ const server = http.createServer(async (req, res) => {
         };
 
 
-        // 会話を継続する場合
+        // 会話継続
         if (interactionId) {
 
           requestBody.previous_interaction_id =
@@ -139,14 +141,22 @@ const server = http.createServer(async (req, res) => {
         }
 
 
+        console.log(
+          "Gemini request:",
+          JSON.stringify({
+            model: MODEL,
+            interactionId:
+              interactionId
+          })
+        );
+
+
         // ========================================
-        // Gemini APIへ送信
+        // Gemini API
         // ========================================
 
         const response = await fetch(
-
-          "https://generativelanguage.googleapis.com/v1beta/interactions",
-
+          "https://generativelanguage.googleapis.com/v1beta/interactions?alt=sse",
           {
 
             method: "POST",
@@ -155,6 +165,9 @@ const server = http.createServer(async (req, res) => {
 
               "Content-Type":
                 "application/json",
+
+              "Accept":
+                "text/event-stream",
 
               "x-goog-api-key":
                 API_KEY
@@ -165,12 +178,11 @@ const server = http.createServer(async (req, res) => {
               JSON.stringify(requestBody)
 
           }
-
         );
 
 
         // ========================================
-        // Gemini APIエラー
+        // Gemini API Error
         // ========================================
 
         if (!response.ok) {
@@ -178,9 +190,9 @@ const server = http.createServer(async (req, res) => {
           const errorText =
             await response.text();
 
-
           console.error(
-            "Gemini API Error:",
+            "Gemini API ERROR:",
+            response.status,
             errorText
           );
 
@@ -189,22 +201,22 @@ const server = http.createServer(async (req, res) => {
             response.status,
             {
               "Content-Type":
-                "application/json"
+                "application/json; charset=utf-8"
             }
           );
 
 
           return res.end(
             JSON.stringify({
-              error: errorText
+              error:
+                errorText
             })
           );
-
         }
 
 
         // ========================================
-        // SSE開始
+        // SSE Response
         // ========================================
 
         res.writeHead(200, {
@@ -213,7 +225,7 @@ const server = http.createServer(async (req, res) => {
             "text/event-stream; charset=utf-8",
 
           "Cache-Control":
-            "no-cache",
+            "no-cache, no-transform",
 
           "Connection":
             "keep-alive",
@@ -227,16 +239,14 @@ const server = http.createServer(async (req, res) => {
         const reader =
           response.body.getReader();
 
-
         const decoder =
           new TextDecoder();
-
 
         let buffer = "";
 
 
         // ========================================
-        // Geminiストリーミング受信
+        // Gemini Stream
         // ========================================
 
         while (true) {
@@ -244,8 +254,7 @@ const server = http.createServer(async (req, res) => {
           const {
             value,
             done
-          } =
-            await reader.read();
+          } = await reader.read();
 
 
           if (done) {
@@ -253,13 +262,12 @@ const server = http.createServer(async (req, res) => {
           }
 
 
-          buffer +=
-            decoder.decode(
-              value,
-              {
-                stream: true
-              }
-            );
+          buffer += decoder.decode(
+            value,
+            {
+              stream: true
+            }
+          );
 
 
           const lines =
@@ -270,23 +278,17 @@ const server = http.createServer(async (req, res) => {
             lines.pop() || "";
 
 
-          for (
-            const line of lines
-          ) {
+          for (const line of lines) {
 
             if (
-              !line.startsWith(
-                "data:"
-              )
+              !line.startsWith("data:")
             ) {
               continue;
             }
 
 
             const raw =
-              line
-                .slice(5)
-                .trim();
+              line.slice(5).trim();
 
 
             if (
@@ -303,87 +305,65 @@ const server = http.createServer(async (req, res) => {
                 JSON.parse(raw);
 
 
-              // ==================================
-              // Interaction created
-              // ==================================
+              // =================================
+              // Interaction Created
+              // =================================
 
               if (
-
                 event.event_type ===
-                  "interaction.created"
-
-                &&
-
+                  "interaction.created" &&
                 event.interaction
-
               ) {
 
                 res.write(
-
                   `data: ${JSON.stringify({
-
                     type:
                       "interaction",
-
                     id:
                       event.interaction.id
-
                   })}\n\n`
-
                 );
 
               }
 
 
-              // ==================================
-              // Step delta
-              // ==================================
+              // =================================
+              // Step Delta
+              // =================================
 
               if (
-
                 event.event_type ===
-                  "step.delta"
-
-                &&
-
+                  "step.delta" &&
                 event.delta
-
               ) {
 
                 const delta =
                   event.delta;
 
 
-                // ------------------------------
+                // -------------------------------
                 // 思考サマリー
-                // ------------------------------
+                // -------------------------------
 
                 if (
-
                   delta.type ===
-                    "thought_summary"
-
+                  "thought_summary"
                 ) {
 
                   const text =
-                    delta.content?.text
-                    || "";
+                    delta.content?.text ||
+                    "";
 
 
                   if (text) {
 
                     res.write(
-
                       `data: ${JSON.stringify({
-
                         type:
                           "thought",
-
                         text:
                           text
-
                       })}\n\n`
-
                     );
 
                   }
@@ -391,31 +371,23 @@ const server = http.createServer(async (req, res) => {
                 }
 
 
-                // ------------------------------
+                // -------------------------------
                 // 通常回答
-                // ------------------------------
+                // -------------------------------
 
                 else if (
-
-                  delta.type ===
-                    "text"
-
+                  delta.type === "text"
                 ) {
 
                   if (delta.text) {
 
                     res.write(
-
                       `data: ${JSON.stringify({
-
                         type:
                           "text",
-
                         text:
                           delta.text
-
                       })}\n\n`
-
                     );
 
                   }
@@ -425,45 +397,33 @@ const server = http.createServer(async (req, res) => {
               }
 
 
-              // ==================================
-              // Interaction completed
-              // ==================================
+              // =================================
+              // Interaction Completed
+              // =================================
 
               if (
-
                 event.event_type ===
-                  "interaction.completed"
-
-                &&
-
+                  "interaction.completed" &&
                 event.interaction
-
               ) {
 
                 res.write(
-
                   `data: ${JSON.stringify({
-
                     type:
                       "done",
-
                     interactionId:
                       event.interaction.id
-
                   })}\n\n`
-
                 );
 
               }
 
 
-            }
-
-            catch (err) {
+            } catch (parseError) {
 
               console.error(
                 "SSE parse error:",
-                err
+                parseError
               );
 
             }
@@ -474,71 +434,53 @@ const server = http.createServer(async (req, res) => {
 
 
         // ========================================
-        // ストリーム終了
+        // Stream Finished
         // ========================================
 
         res.write(
-
           `data: ${JSON.stringify({
-
-            type: "done"
-
+            type:
+              "done"
           })}\n\n`
-
         );
 
 
         res.end();
 
 
-      }
-
-      catch (error) {
+      } catch (error) {
 
         console.error(
-          "Server Error:",
+          "Server error:",
           error
         );
 
 
-        // ヘッダー送信前
         if (!res.headersSent) {
 
           res.writeHead(500, {
-
             "Content-Type":
-              "application/json"
-
+              "application/json; charset=utf-8"
           });
 
 
           return res.end(
-
             JSON.stringify({
-
               error:
                 error.message
-
             })
-
           );
 
         }
 
 
-        // ヘッダー送信後
         res.write(
-
           `data: ${JSON.stringify({
-
             type:
               "error",
-
             message:
               error.message
-
           })}\n\n`
-
         );
 
 
@@ -548,9 +490,7 @@ const server = http.createServer(async (req, res) => {
 
     });
 
-
     return;
-
   }
 
 
@@ -569,30 +509,25 @@ const server = http.createServer(async (req, res) => {
         "index.html"
       );
 
-  }
+  } else {
 
-  else {
-
-    // URLから危険なパスを除去
-    const safePath =
-      decodeURIComponent(
-        req.url.split("?")[0]
-      );
-
+    const cleanUrl =
+      req.url.split("?")[0];
 
     filePath =
       path.join(
         __dirname,
-        safePath
+        cleanUrl
       );
 
   }
 
 
-  // ファイル存在確認
-  if (
-    !fs.existsSync(filePath)
-  ) {
+  // ========================================
+  // File Not Found
+  // ========================================
+
+  if (!fs.existsSync(filePath)) {
 
     res.writeHead(404);
 
@@ -602,6 +537,10 @@ const server = http.createServer(async (req, res) => {
 
   }
 
+
+  // ========================================
+  // Content Type
+  // ========================================
 
   const ext =
     path.extname(filePath);
@@ -619,7 +558,7 @@ const server = http.createServer(async (req, res) => {
       "application/javascript; charset=utf-8",
 
     ".json":
-      "application/json"
+      "application/json; charset=utf-8"
 
   };
 
@@ -641,13 +580,11 @@ const server = http.createServer(async (req, res) => {
 
 
 // ========================================
-// Server Start
+// Start
 // ========================================
 
 server.listen(
-
   PORT,
-
   () => {
 
     console.log(
@@ -659,5 +596,4 @@ server.listen(
     );
 
   }
-
 );
