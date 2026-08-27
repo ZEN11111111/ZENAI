@@ -15,14 +15,14 @@ const MODEL =
 
 const server = http.createServer(async (req, res) => {
 
-  // -------------------------
-  // Health check
-  // -------------------------
+  // =========================
+  // Health Check
+  // =========================
 
   if (req.method === "GET" && req.url === "/api/health") {
 
     res.writeHead(200, {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json; charset=utf-8"
     });
 
     return res.end(JSON.stringify({
@@ -32,16 +32,16 @@ const server = http.createServer(async (req, res) => {
   }
 
 
-  // -------------------------
-  // Chat
-  // -------------------------
+  // =========================
+  // Gemini Chat
+  // =========================
 
   if (req.method === "POST" && req.url === "/api/chat") {
 
     if (!API_KEY) {
 
       res.writeHead(500, {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json; charset=utf-8"
       });
 
       return res.end(JSON.stringify({
@@ -65,10 +65,14 @@ const server = http.createServer(async (req, res) => {
         const interactionId =
           data.interactionId || null;
 
+        const thinkingLevel =
+          data.thinkingLevel || "medium";
+
         if (!message) {
 
           res.writeHead(400, {
-            "Content-Type": "application/json"
+            "Content-Type":
+              "application/json; charset=utf-8"
           });
 
           return res.end(JSON.stringify({
@@ -77,7 +81,10 @@ const server = http.createServer(async (req, res) => {
         }
 
 
+        // =========================
         // Gemini Interactions API
+        // =========================
+
         const requestBody = {
 
           model: MODEL,
@@ -110,7 +117,10 @@ const server = http.createServer(async (req, res) => {
                 "application/json",
 
               "x-goog-api-key":
-                API_KEY
+                API_KEY,
+
+              "Accept":
+                "text/event-stream"
             },
 
             body: JSON.stringify(requestBody)
@@ -118,16 +128,25 @@ const server = http.createServer(async (req, res) => {
         );
 
 
+        // =========================
+        // Gemini API Error
+        // =========================
+
         if (!response.ok) {
 
           const errorText =
             await response.text();
 
+          console.error(
+            "Gemini API Error:",
+            errorText
+          );
+
           res.writeHead(
             response.status,
             {
               "Content-Type":
-                "application/json"
+                "application/json; charset=utf-8"
             }
           );
 
@@ -139,14 +158,17 @@ const server = http.createServer(async (req, res) => {
         }
 
 
+        // =========================
         // SSE
+        // =========================
+
         res.writeHead(200, {
 
           "Content-Type":
             "text/event-stream; charset=utf-8",
 
           "Cache-Control":
-            "no-cache",
+            "no-cache, no-transform",
 
           "Connection":
             "keep-alive",
@@ -184,7 +206,7 @@ const server = http.createServer(async (req, res) => {
 
 
           const lines =
-            buffer.split("\n");
+            buffer.split(/\r?\n/);
 
           buffer =
             lines.pop() || "";
@@ -215,7 +237,10 @@ const server = http.createServer(async (req, res) => {
                 JSON.parse(raw);
 
 
-              // Interaction created
+              // =========================
+              // Interaction Created
+              // =========================
+
               if (
                 event.event_type ===
                   "interaction.created" &&
@@ -231,7 +256,10 @@ const server = http.createServer(async (req, res) => {
               }
 
 
-              // Step delta
+              // =========================
+              // Step Delta
+              // =========================
+
               if (
                 event.event_type ===
                   "step.delta" &&
@@ -265,7 +293,7 @@ const server = http.createServer(async (req, res) => {
 
 
                 // 通常回答
-                else if (
+                if (
                   delta.type === "text"
                 ) {
 
@@ -282,7 +310,10 @@ const server = http.createServer(async (req, res) => {
               }
 
 
-              // 完了
+              // =========================
+              // Interaction Completed
+              // =========================
+
               if (
                 event.event_type ===
                   "interaction.completed" &&
@@ -299,6 +330,22 @@ const server = http.createServer(async (req, res) => {
               }
 
 
+              // API Error Event
+              if (
+                event.event_type === "error"
+              ) {
+
+                res.write(
+                  `data: ${JSON.stringify({
+                    type: "error",
+                    message:
+                      event.error?.message ||
+                      "Gemini API Error"
+                  })}\n\n`
+                );
+              }
+
+
             } catch (err) {
 
               console.error(
@@ -310,25 +357,22 @@ const server = http.createServer(async (req, res) => {
         }
 
 
-        res.write(
-          `data: ${JSON.stringify({
-            type: "done"
-          })}\n\n`
-        );
-
         res.end();
 
 
       } catch (error) {
 
-        console.error(error);
+        console.error(
+          "Server error:",
+          error
+        );
 
 
         if (!res.headersSent) {
 
           res.writeHead(500, {
             "Content-Type":
-              "application/json"
+              "application/json; charset=utf-8"
           });
 
           return res.end(
@@ -355,9 +399,9 @@ const server = http.createServer(async (req, res) => {
   }
 
 
-  // -------------------------
-  // Static files
-  // -------------------------
+  // =========================
+  // Static Files
+  // =========================
 
   let filePath;
 
@@ -402,4 +446,39 @@ const server = http.createServer(async (req, res) => {
       "text/css; charset=utf-8",
 
     ".js":
-      "
+      "application/javascript; charset=utf-8",
+
+    ".json":
+      "application/json"
+  };
+
+
+  res.writeHead(200, {
+
+    "Content-Type":
+      types[ext] ||
+      "application/octet-stream"
+  });
+
+
+  fs.createReadStream(
+    filePath
+  ).pipe(res);
+
+});
+
+
+server.listen(
+  PORT,
+  () => {
+
+    console.log(
+      `ZENAI server running on port ${PORT}`
+    );
+
+    console.log(
+      `Model: ${MODEL}`
+    );
+
+  }
+);
