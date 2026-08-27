@@ -10,50 +10,67 @@ const PORT = process.env.PORT || 3000;
 
 const API_KEY = process.env.GEMINI_API_KEY;
 
+// 使用するGeminiモデル
 const MODEL =
   process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
+
 const server = http.createServer(async (req, res) => {
 
-  // =========================
+  // ========================================
   // Health Check
-  // =========================
+  // ========================================
 
-  if (req.method === "GET" && req.url === "/api/health") {
+  if (
+    req.method === "GET" &&
+    req.url === "/api/health"
+  ) {
 
     res.writeHead(200, {
-      "Content-Type": "application/json; charset=utf-8"
+      "Content-Type": "application/json"
     });
 
-    return res.end(JSON.stringify({
-      ok: true,
-      model: MODEL
-    }));
+    return res.end(
+      JSON.stringify({
+        ok: true,
+        model: MODEL
+      })
+    );
   }
 
 
-  // =========================
-  // Gemini Chat
-  // =========================
+  // ========================================
+  // Chat API
+  // ========================================
 
-  if (req.method === "POST" && req.url === "/api/chat") {
+  if (
+    req.method === "POST" &&
+    req.url === "/api/chat"
+  ) {
 
+    // APIキー確認
     if (!API_KEY) {
 
       res.writeHead(500, {
-        "Content-Type": "application/json; charset=utf-8"
+        "Content-Type": "application/json"
       });
 
-      return res.end(JSON.stringify({
-        error: "GEMINI_API_KEY が設定されていません"
-      }));
+      return res.end(
+        JSON.stringify({
+          error:
+            "GEMINI_API_KEY が設定されていません"
+        })
+      );
     }
 
+
     let body = "";
+
 
     req.on("data", chunk => {
       body += chunk;
     });
+
 
     req.on("end", async () => {
 
@@ -61,29 +78,36 @@ const server = http.createServer(async (req, res) => {
 
         const data = JSON.parse(body);
 
+
         const message = data.message;
+
         const interactionId =
           data.interactionId || null;
 
         const thinkingLevel =
           data.thinkingLevel || "medium";
 
+
+        // メッセージ確認
         if (!message) {
 
           res.writeHead(400, {
             "Content-Type":
-              "application/json; charset=utf-8"
+              "application/json"
           });
 
-          return res.end(JSON.stringify({
-            error: "message がありません"
-          }));
+          return res.end(
+            JSON.stringify({
+              error:
+                "message がありません"
+            })
+          );
         }
 
 
-        // =========================
+        // ========================================
         // Gemini Interactions API
-        // =========================
+        // ========================================
 
         const requestBody = {
 
@@ -94,73 +118,94 @@ const server = http.createServer(async (req, res) => {
           stream: true,
 
           generation_config: {
-            thinking_summaries: "auto"
+
+            thinking_level:
+              thinkingLevel,
+
+            thinking_summaries:
+              "auto"
+
           }
+
         };
 
 
-        // 会話継続
+        // 会話を継続する場合
         if (interactionId) {
 
           requestBody.previous_interaction_id =
             interactionId;
+
         }
 
 
+        // ========================================
+        // Gemini APIへ送信
+        // ========================================
+
         const response = await fetch(
+
           "https://generativelanguage.googleapis.com/v1beta/interactions",
+
           {
+
             method: "POST",
 
             headers: {
+
               "Content-Type":
                 "application/json",
 
               "x-goog-api-key":
-                API_KEY,
+                API_KEY
 
-              "Accept":
-                "text/event-stream"
             },
 
-            body: JSON.stringify(requestBody)
+            body:
+              JSON.stringify(requestBody)
+
           }
+
         );
 
 
-        // =========================
-        // Gemini API Error
-        // =========================
+        // ========================================
+        // Gemini APIエラー
+        // ========================================
 
         if (!response.ok) {
 
           const errorText =
             await response.text();
 
+
           console.error(
             "Gemini API Error:",
             errorText
           );
 
+
           res.writeHead(
             response.status,
             {
               "Content-Type":
-                "application/json; charset=utf-8"
+                "application/json"
             }
           );
+
 
           return res.end(
             JSON.stringify({
               error: errorText
             })
           );
+
         }
 
 
-        // =========================
-        // SSE
-        // =========================
+        // ========================================
+        // SSE開始
+        // ========================================
 
         res.writeHead(200, {
 
@@ -168,59 +213,80 @@ const server = http.createServer(async (req, res) => {
             "text/event-stream; charset=utf-8",
 
           "Cache-Control":
-            "no-cache, no-transform",
+            "no-cache",
 
           "Connection":
             "keep-alive",
 
           "X-Accel-Buffering":
             "no"
+
         });
 
 
         const reader =
           response.body.getReader();
 
+
         const decoder =
           new TextDecoder();
 
+
         let buffer = "";
 
+
+        // ========================================
+        // Geminiストリーミング受信
+        // ========================================
 
         while (true) {
 
           const {
             value,
             done
-          } = await reader.read();
+          } =
+            await reader.read();
 
-          if (done) break;
+
+          if (done) {
+            break;
+          }
 
 
-          buffer += decoder.decode(
-            value,
-            {
-              stream: true
-            }
-          );
+          buffer +=
+            decoder.decode(
+              value,
+              {
+                stream: true
+              }
+            );
 
 
           const lines =
-            buffer.split(/\r?\n/);
+            buffer.split("\n");
+
 
           buffer =
             lines.pop() || "";
 
 
-          for (const line of lines) {
+          for (
+            const line of lines
+          ) {
 
-            if (!line.startsWith("data:")) {
+            if (
+              !line.startsWith(
+                "data:"
+              )
+            ) {
               continue;
             }
 
 
             const raw =
-              line.slice(5).trim();
+              line
+                .slice(5)
+                .trim();
 
 
             if (
@@ -237,173 +303,263 @@ const server = http.createServer(async (req, res) => {
                 JSON.parse(raw);
 
 
-              // =========================
-              // Interaction Created
-              // =========================
+              // ==================================
+              // Interaction created
+              // ==================================
 
               if (
+
                 event.event_type ===
-                  "interaction.created" &&
+                  "interaction.created"
+
+                &&
+
                 event.interaction
+
               ) {
 
                 res.write(
+
                   `data: ${JSON.stringify({
-                    type: "interaction",
-                    id: event.interaction.id
+
+                    type:
+                      "interaction",
+
+                    id:
+                      event.interaction.id
+
                   })}\n\n`
+
                 );
+
               }
 
 
-              // =========================
-              // Step Delta
-              // =========================
+              // ==================================
+              // Step delta
+              // ==================================
 
               if (
+
                 event.event_type ===
-                  "step.delta" &&
+                  "step.delta"
+
+                &&
+
                 event.delta
+
               ) {
 
                 const delta =
                   event.delta;
 
 
+                // ------------------------------
                 // 思考サマリー
+                // ------------------------------
+
                 if (
+
                   delta.type ===
-                  "thought_summary"
+                    "thought_summary"
+
                 ) {
 
                   const text =
-                    delta.content?.text ||
-                    "";
+                    delta.content?.text
+                    || "";
+
 
                   if (text) {
 
                     res.write(
+
                       `data: ${JSON.stringify({
-                        type: "thought",
-                        text
+
+                        type:
+                          "thought",
+
+                        text:
+                          text
+
                       })}\n\n`
+
                     );
+
                   }
+
                 }
 
 
+                // ------------------------------
                 // 通常回答
-                if (
-                  delta.type === "text"
+                // ------------------------------
+
+                else if (
+
+                  delta.type ===
+                    "text"
+
                 ) {
 
                   if (delta.text) {
 
                     res.write(
+
                       `data: ${JSON.stringify({
-                        type: "text",
-                        text: delta.text
+
+                        type:
+                          "text",
+
+                        text:
+                          delta.text
+
                       })}\n\n`
+
                     );
+
                   }
+
                 }
+
               }
 
 
-              // =========================
-              // Interaction Completed
-              // =========================
+              // ==================================
+              // Interaction completed
+              // ==================================
 
               if (
+
                 event.event_type ===
-                  "interaction.completed" &&
+                  "interaction.completed"
+
+                &&
+
                 event.interaction
+
               ) {
 
                 res.write(
+
                   `data: ${JSON.stringify({
-                    type: "done",
+
+                    type:
+                      "done",
+
                     interactionId:
                       event.interaction.id
+
                   })}\n\n`
+
                 );
+
               }
 
 
-              // API Error Event
-              if (
-                event.event_type === "error"
-              ) {
+            }
 
-                res.write(
-                  `data: ${JSON.stringify({
-                    type: "error",
-                    message:
-                      event.error?.message ||
-                      "Gemini API Error"
-                  })}\n\n`
-                );
-              }
-
-
-            } catch (err) {
+            catch (err) {
 
               console.error(
                 "SSE parse error:",
                 err
               );
+
             }
+
           }
+
         }
+
+
+        // ========================================
+        // ストリーム終了
+        // ========================================
+
+        res.write(
+
+          `data: ${JSON.stringify({
+
+            type: "done"
+
+          })}\n\n`
+
+        );
 
 
         res.end();
 
 
-      } catch (error) {
+      }
+
+      catch (error) {
 
         console.error(
-          "Server error:",
+          "Server Error:",
           error
         );
 
 
+        // ヘッダー送信前
         if (!res.headersSent) {
 
           res.writeHead(500, {
+
             "Content-Type":
-              "application/json; charset=utf-8"
+              "application/json"
+
           });
 
+
           return res.end(
+
             JSON.stringify({
-              error: error.message
+
+              error:
+                error.message
+
             })
+
           );
+
         }
 
 
+        // ヘッダー送信後
         res.write(
+
           `data: ${JSON.stringify({
-            type: "error",
-            message: error.message
+
+            type:
+              "error",
+
+            message:
+              error.message
+
           })}\n\n`
+
         );
 
+
         res.end();
+
       }
 
     });
 
+
     return;
+
   }
 
 
-  // =========================
+  // ========================================
   // Static Files
-  // =========================
+  // ========================================
 
   let filePath;
+
 
   if (req.url === "/") {
 
@@ -413,23 +569,37 @@ const server = http.createServer(async (req, res) => {
         "index.html"
       );
 
-  } else {
+  }
+
+  else {
+
+    // URLから危険なパスを除去
+    const safePath =
+      decodeURIComponent(
+        req.url.split("?")[0]
+      );
+
 
     filePath =
       path.join(
         __dirname,
-        req.url
+        safePath
       );
+
   }
 
 
-  if (!fs.existsSync(filePath)) {
+  // ファイル存在確認
+  if (
+    !fs.existsSync(filePath)
+  ) {
 
     res.writeHead(404);
 
     return res.end(
       "Not Found"
     );
+
   }
 
 
@@ -450,6 +620,7 @@ const server = http.createServer(async (req, res) => {
 
     ".json":
       "application/json"
+
   };
 
 
@@ -458,6 +629,7 @@ const server = http.createServer(async (req, res) => {
     "Content-Type":
       types[ext] ||
       "application/octet-stream"
+
   });
 
 
@@ -468,8 +640,14 @@ const server = http.createServer(async (req, res) => {
 });
 
 
+// ========================================
+// Server Start
+// ========================================
+
 server.listen(
+
   PORT,
+
   () => {
 
     console.log(
@@ -477,8 +655,9 @@ server.listen(
     );
 
     console.log(
-      `Model: ${MODEL}`
+      `Gemini Model: ${MODEL}`
     );
 
   }
+
 );
