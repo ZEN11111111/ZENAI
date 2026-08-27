@@ -7,3 +7,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: GEMINI_MODEL
+        value: gemini-3.7-flash

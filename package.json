@@ -1,8 +1,8 @@
 {
-  "name": "zenai",
-  "version": "1.0.0",
+  "name": "zenai-2.0",
+  "version": "2.0.0",
   "private": true,
-  "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },

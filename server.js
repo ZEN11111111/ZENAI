@@ -1,91 +1,12 @@
-const express = require("express");
-
-const app = express();
-const PORT = process.env.PORT || 10000;
-
-app.use(express.json({ limit: "2mb" }));
-app.use(express.static(__dirname));
-
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true });
-});
-
-app.post("/api/chat", async (req, res) => {
-  try {
-    const messages = Array.isArray(req.body.messages)
-      ? req.body.messages
-      : [];
-
-    if (!messages.length) {
-      return res.status(400).json({
-        error: "メッセージがありません。"
-      });
-    }
-
-    const key = process.env.GEMINI_API_KEY;
-
-    if (!key) {
-      return res.status(500).json({
-        error: "GEMINI_API_KEYが設定されていません。"
-      });
-    }
-
-    const prompt = messages
-      .map(m => {
-        const role = m.role === "assistant" ? "ZENAI" : "ユーザー";
-        return `${role}: ${m.content}`;
-      })
-      .join("\n");
-
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": key
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text:
-                    "あなたはZENAIという日本語AIアシスタントです。親しみやすく、分かりやすく回答してください。\n\n" +
-                    prompt
-                }
-              ]
-            }
-          ]
-        })
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: data?.error?.message || "Gemini APIエラー"
-      });
-    }
-
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "回答を取得できませんでした。";
-
-    res.json({
-      text
-    });
-
-  } catch (e) {
-    console.error(e);
-
-    res.status(500).json({
-      error: e.message
-    });
-  }
-});
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`ZENAI listening on port ${PORT}`);
-});
+import express from "express";
+const app=express();const PORT=process.env.PORT||10000;const KEY=process.env.GEMINI_API_KEY;const MODEL=process.env.GEMINI_MODEL||"gemini-3.7-flash";
+app.use(express.json({limit:"2mb"}));app.use(express.static(process.cwd()));app.get("/api/health",(_,res)=>res.json({ok:true}));
+function sse(res,o){res.write(`data: ${JSON.stringify(o)}\n\n`)}
+app.post("/api/chat",async(req,res)=>{const {message,interactionId,thinkingLevel="medium"}=req.body||{};if(!message)return res.status(400).json({error:"メッセージがありません。"});if(!KEY)return res.status(500).json({error:"GEMINI_API_KEYが設定されていません。"});res.setHeader("Content-Type","text/event-stream; charset=utf-8");res.setHeader("Cache-Control","no-cache");res.setHeader("Connection","keep-alive");
+try{const levels=new Set(["low","medium","high"]);const body={model:MODEL,input:String(message),generation_config:{thinking_level:levels.has(thinkingLevel)?thinkingLevel:"medium",thinking_summaries:"auto"},stream:true};if(interactionId)body.previous_interaction_id=interactionId;
+const r=await fetch("https://generativelanguage.googleapis.com/v1beta/interactions",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":KEY.trim()},body:JSON.stringify(body)});if(!r.ok){sse(res,{type:"error",message:(await r.text()).slice(0,1200)});return res.end()}
+const rd=r.body.getReader(),de=new TextDecoder();let buf="";while(true){const {value,done}=await rd.read();if(done)break;buf+=de.decode(value,{stream:true});let ls=buf.split("\n");buf=ls.pop();for(const line0 of ls){const line=line0.trim();if(!line.startsWith("data:"))continue;const raw=line.slice(5).trim();if(!raw||raw==="[DONE]")continue;let e;try{e=JSON.parse(raw)}catch{continue}
+if(e.event_type==="interaction.created"&&e.interaction?.id)sse(res,{type:"interaction",id:e.interaction.id});
+if(e.event_type==="step.delta"){const d=e.delta||{};if(d.type==="thought_summary"&&d.text)sse(res,{type:"thought",text:d.text});if(d.type==="text"&&d.text)sse(res,{type:"text",text:d.text})}
+if(e.event_type==="interaction.completed"&&e.interaction?.id)sse(res,{type:"done",interactionId:e.interaction.id})}}res.end()}catch(e){if(!res.writableEnded){sse(res,{type:"error",message:e.message||"通信エラー"});res.end()}}});
+app.listen(PORT,"0.0.0.0",()=>console.log(`ZENAI 2.0 listening on ${PORT}`));
