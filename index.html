@@ -1,11 +1,43 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ZENAI</title>
 </head>
+
 <body>
-  <main><h1>ZENAI</h1><p>サーバー接続を確認してください。</p></main>
+  <main>
+    <h1>ZENAI</h1>
+    <p id="status">サーバーに接続中...</p>
+  </main>
+
+  <script>
+    async function checkServer() {
+      const status = document.getElementById("status");
+
+      try {
+        const response = await fetch("/api/health");
+
+        if (!response.ok) {
+          throw new Error("サーバーエラー");
+        }
+
+        const data = await response.json();
+
+        if (data.ok) {
+          status.textContent = "サーバー接続成功！";
+        } else {
+          status.textContent = "サーバー接続を確認してください。";
+        }
+
+      } catch (error) {
+        console.error(error);
+        status.textContent = "サーバー接続を確認してください。";
+      }
+    }
+
+    checkServer();
+  </script>
 </body>
 </html>
