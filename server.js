@@ -1,15 +1,26 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
+import http from "http";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
+
 const API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+
+const MODEL =
+  process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
 const server = http.createServer(async (req, res) => {
 
+  // -------------------------
   // Health check
+  // -------------------------
+
   if (req.method === "GET" && req.url === "/api/health") {
+
     res.writeHead(200, {
       "Content-Type": "application/json"
     });
@@ -20,10 +31,15 @@ const server = http.createServer(async (req, res) => {
     }));
   }
 
-  // Chat API
+
+  // -------------------------
+  // Chat
+  // -------------------------
+
   if (req.method === "POST" && req.url === "/api/chat") {
 
     if (!API_KEY) {
+
       res.writeHead(500, {
         "Content-Type": "application/json"
       });
@@ -42,12 +58,15 @@ const server = http.createServer(async (req, res) => {
     req.on("end", async () => {
 
       try {
+
         const data = JSON.parse(body);
 
         const message = data.message;
-        const previousInteractionId = data.interactionId || null;
+        const interactionId =
+          data.interactionId || null;
 
         if (!message) {
+
           res.writeHead(400, {
             "Content-Type": "application/json"
           });
@@ -57,9 +76,14 @@ const server = http.createServer(async (req, res) => {
           }));
         }
 
+
+        // Gemini Interactions API
         const requestBody = {
+
           model: MODEL,
+
           input: message,
+
           stream: true,
 
           generation_config: {
@@ -67,11 +91,14 @@ const server = http.createServer(async (req, res) => {
           }
         };
 
-        // 会話を継続
-        if (previousInteractionId) {
+
+        // 会話継続
+        if (interactionId) {
+
           requestBody.previous_interaction_id =
-            previousInteractionId;
+            interactionId;
         }
+
 
         const response = await fetch(
           "https://generativelanguage.googleapis.com/v1beta/interactions",
@@ -79,51 +106,89 @@ const server = http.createServer(async (req, res) => {
             method: "POST",
 
             headers: {
-              "Content-Type": "application/json",
-              "x-goog-api-key": API_KEY
+              "Content-Type":
+                "application/json",
+
+              "x-goog-api-key":
+                API_KEY
             },
 
             body: JSON.stringify(requestBody)
           }
         );
 
+
         if (!response.ok) {
-          const errorText = await response.text();
 
-          res.writeHead(response.status, {
-            "Content-Type": "application/json"
-          });
+          const errorText =
+            await response.text();
 
-          return res.end(JSON.stringify({
-            error: errorText
-          }));
+          res.writeHead(
+            response.status,
+            {
+              "Content-Type":
+                "application/json"
+            }
+          );
+
+          return res.end(
+            JSON.stringify({
+              error: errorText
+            })
+          );
         }
 
+
+        // SSE
         res.writeHead(200, {
-          "Content-Type": "text/event-stream; charset=utf-8",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-          "X-Accel-Buffering": "no"
+
+          "Content-Type":
+            "text/event-stream; charset=utf-8",
+
+          "Cache-Control":
+            "no-cache",
+
+          "Connection":
+            "keep-alive",
+
+          "X-Accel-Buffering":
+            "no"
         });
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+
+        const reader =
+          response.body.getReader();
+
+        const decoder =
+          new TextDecoder();
 
         let buffer = "";
 
+
         while (true) {
 
-          const { value, done } = await reader.read();
+          const {
+            value,
+            done
+          } = await reader.read();
 
           if (done) break;
 
-          buffer += decoder.decode(value, {
-            stream: true
-          });
 
-          const lines = buffer.split("\n");
+          buffer += decoder.decode(
+            value,
+            {
+              stream: true
+            }
+          );
 
-          buffer = lines.pop() || "";
+
+          const lines =
+            buffer.split("\n");
+
+          buffer =
+            lines.pop() || "";
+
 
           for (const line of lines) {
 
@@ -131,19 +196,29 @@ const server = http.createServer(async (req, res) => {
               continue;
             }
 
-            const raw = line.slice(5).trim();
 
-            if (!raw || raw === "[DONE]") {
+            const raw =
+              line.slice(5).trim();
+
+
+            if (
+              !raw ||
+              raw === "[DONE]"
+            ) {
               continue;
             }
 
+
             try {
 
-              const event = JSON.parse(raw);
+              const event =
+                JSON.parse(raw);
 
-              // Interaction ID
+
+              // Interaction created
               if (
-                event.event_type === "interaction.created" &&
+                event.event_type ===
+                  "interaction.created" &&
                 event.interaction
               ) {
 
@@ -155,21 +230,27 @@ const server = http.createServer(async (req, res) => {
                 );
               }
 
+
               // Step delta
               if (
-                event.event_type === "step.delta" &&
+                event.event_type ===
+                  "step.delta" &&
                 event.delta
               ) {
 
-                const delta = event.delta;
+                const delta =
+                  event.delta;
+
 
                 // 思考サマリー
                 if (
-                  delta.type === "thought_summary"
+                  delta.type ===
+                  "thought_summary"
                 ) {
 
                   const text =
-                    delta.content?.text || "";
+                    delta.content?.text ||
+                    "";
 
                   if (text) {
 
@@ -181,6 +262,7 @@ const server = http.createServer(async (req, res) => {
                     );
                   }
                 }
+
 
                 // 通常回答
                 else if (
@@ -199,9 +281,11 @@ const server = http.createServer(async (req, res) => {
                 }
               }
 
+
               // 完了
               if (
-                event.event_type === "interaction.completed" &&
+                event.event_type ===
+                  "interaction.completed" &&
                 event.interaction
               ) {
 
@@ -214,7 +298,9 @@ const server = http.createServer(async (req, res) => {
                 );
               }
 
+
             } catch (err) {
+
               console.error(
                 "SSE parse error:",
                 err
@@ -222,6 +308,7 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
+
 
         res.write(
           `data: ${JSON.stringify({
@@ -231,19 +318,26 @@ const server = http.createServer(async (req, res) => {
 
         res.end();
 
+
       } catch (error) {
 
         console.error(error);
 
+
         if (!res.headersSent) {
+
           res.writeHead(500, {
-            "Content-Type": "application/json"
+            "Content-Type":
+              "application/json"
           });
 
-          return res.end(JSON.stringify({
-            error: error.message
-          }));
+          return res.end(
+            JSON.stringify({
+              error: error.message
+            })
+          );
         }
+
 
         res.write(
           `data: ${JSON.stringify({
@@ -254,44 +348,58 @@ const server = http.createServer(async (req, res) => {
 
         res.end();
       }
+
     });
 
     return;
   }
 
-  // 静的ファイル
-  let filePath = req.url === "/"
-    ? path.join(__dirname, "index.html")
-    : path.join(__dirname, req.url);
 
-  if (!fs.existsSync(filePath)) {
-    res.writeHead(404);
-    return res.end("Not Found");
+  // -------------------------
+  // Static files
+  // -------------------------
+
+  let filePath;
+
+  if (req.url === "/") {
+
+    filePath =
+      path.join(
+        __dirname,
+        "index.html"
+      );
+
+  } else {
+
+    filePath =
+      path.join(
+        __dirname,
+        req.url
+      );
   }
 
-  const ext = path.extname(filePath);
+
+  if (!fs.existsSync(filePath)) {
+
+    res.writeHead(404);
+
+    return res.end(
+      "Not Found"
+    );
+  }
+
+
+  const ext =
+    path.extname(filePath);
+
 
   const types = {
-    ".html": "text/html; charset=utf-8",
-    ".css": "text/css; charset=utf-8",
-    ".js": "application/javascript; charset=utf-8",
-    ".json": "application/json"
-  };
 
-  res.writeHead(200, {
-    "Content-Type":
-      types[ext] || "application/octet-stream"
-  });
+    ".html":
+      "text/html; charset=utf-8",
 
-  fs.createReadStream(filePath).pipe(res);
-});
+    ".css":
+      "text/css; charset=utf-8",
 
-server.listen(PORT, () => {
-  console.log(
-    `ZENAI server running on port ${PORT}`
-  );
-
-  console.log(
-    `Model: ${MODEL}`
-  );
-});
+    ".js":
+      "
