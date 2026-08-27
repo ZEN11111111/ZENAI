@@ -22,38 +22,41 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    const key = process.env.OPENAI_API_KEY;
+    const key = process.env.GEMINI_API_KEY;
 
     if (!key) {
       return res.status(500).json({
-        error: "OPENAI_API_KEY が設定されていません。"
+        error: "GEMINI_API_KEYが設定されていません。"
       });
     }
 
-    // フロントから来たメッセージを文字列に統一
-    const input = messages.map((m) => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content:
-        typeof m.content === "string"
-          ? m.content
-          : Array.isArray(m.content)
-            ? m.content
-                .map((x) => x.text || "")
-                .join("")
-            : String(m.content || "")
-    }));
+    const prompt = messages
+      .map(m => {
+        const role = m.role === "assistant" ? "ZENAI" : "ユーザー";
+        return `${role}: ${m.content}`;
+      })
+      .join("\n");
 
     const response = await fetch(
-      "https://api.openai.com/v1/responses",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${key.trim()}`
+          "x-goog-api-key": key
         },
         body: JSON.stringify({
-          model: "gpt-5.4-mini",
-          input: input
+          contents: [
+            {
+              parts: [
+                {
+                  text:
+                    "あなたはZENAIという日本語AIアシスタントです。親しみやすく、分かりやすく回答してください。\n\n" +
+                    prompt
+                }
+              ]
+            }
+          ]
         })
       }
     );
@@ -61,22 +64,24 @@ app.post("/api/chat", async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("OpenAI API error:", data);
-
       return res.status(response.status).json({
-        error: data?.error?.message || "OpenAI APIでエラーが発生しました。"
+        error: data?.error?.message || "Gemini APIエラー"
       });
     }
 
+    const text =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "回答を取得できませんでした。";
+
     res.json({
-      text: data.output_text || "回答を取得できませんでした。"
+      text
     });
 
-  } catch (error) {
-    console.error(error);
+  } catch (e) {
+    console.error(e);
 
     res.status(500).json({
-      error: error.message
+      error: e.message
     });
   }
 });
