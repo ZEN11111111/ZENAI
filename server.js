@@ -1,5 +1,5 @@
 import express from "express";
-const app=express();const PORT=process.env.PORT||10000;const KEY=process.env.GEMINI_API_KEY;const MODEL=process.env.GEMINI_MODEL||"gemini-3.7-flash";
+const app=express();const PORT=process.env.PORT||10000;const KEY=process.env.GEMINI_API_KEY;const MODEL=process.env.GEMINI_MODEL||"gemini-2.5-flash";
 app.use(express.json({limit:"2mb"}));app.use(express.static(process.cwd()));app.get("/api/health",(_,res)=>res.json({ok:true}));
 function sse(res,o){res.write(`data: ${JSON.stringify(o)}\n\n`)}
 app.post("/api/chat",async(req,res)=>{const {message,interactionId,thinkingLevel="medium"}=req.body||{};if(!message)return res.status(400).json({error:"メッセージがありません。"});if(!KEY)return res.status(500).json({error:"GEMINI_API_KEYが設定されていません。"});res.setHeader("Content-Type","text/event-stream; charset=utf-8");res.setHeader("Cache-Control","no-cache");res.setHeader("Connection","keep-alive");
